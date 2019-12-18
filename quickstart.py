@@ -5,16 +5,10 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 import pandas as pd
-
-# If modifying these scopes, delete the file token.pickle.
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-
-# The ID and range of a sample spreadsheet.
-SAMPLE_SPREADSHEET_ID = '1uvfjpjPM97GxZ40y16OR9f-6flNKXmFZ2JI9mHzST04'
-SAMPLE_RANGE_NAME = '2018!A1:N'
+from config import Config, config
 
 
-def main():
+def get_spreadsheet(SCOPES, SAMPLE_SPREADSHEET_ID, SAMPLE_RANGE_NAME):
     """Shows basic usage of the Sheets API.
     Prints values from a sample spreadsheet.
     """
@@ -47,15 +41,19 @@ def main():
 
     if not values:
         print('No data found.')
-    else:
-        print('Name, Major:')
-        for row in values:
-            # Print columns A and E, which correspond to indices 0 and 4.
-            print('%s, %s' % (row[0], row[4]))
 
     df = pd.DataFrame(values[1:], columns=values[0])
-    print(df)
+    for col in df.columns:
+        df[col] = df[col].str.encode('ascii', 'ignore').str.decode('utf-8').str.replace(',', '.')
     return df
 
+
 if __name__ == '__main__':
-    df = main()
+    li_df = []
+    for srn in Config.SAMPLE_RANGE_NAMES:
+        li_df.append(get_spreadsheet(Config.SCOPES, Config.SAMPLE_SPREADSHEET_ID, srn))
+
+    df = pd.concat(li_df, axis=0, sort=False).reset_index(drop=True)
+    # TODO fixer pour enlever ce filtre
+    df = df[df.date_devis != '']
+    df.date_devis = pd.to_datetime(df.date_devis, format='%d/%m/%Y')
