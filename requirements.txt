@@ -50,7 +50,7 @@ pandas==0.25.1
 pandas-profiling==1.4.1
 partd==1.0.0
 patsy==0.5.1
-Pillow==5.3.0
+Pillow
 pluggy==0.13.0
 pomegranate==0.11.0
 pony==0.7.11
