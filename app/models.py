@@ -1,8 +1,11 @@
 from sqlalchemy import Integer, ForeignKey
 from app import db
+from app import login
 from sqlalchemy import create_engine
 from sqlalchemy_utils import database_exists, create_database
+from flask_user import login_required, UserManager, UserMixin
 from config import Config
+from werkzeug.security import generate_password_hash, check_password_hash
 
 
 class CreateDatabase:
@@ -20,20 +23,43 @@ class CreateDatabase:
 # Tables creation
 
 
-class User(db.Model):
+class User(db.Model, UserMixin):
     """
     Creation of the User table.
     user_id : an unique int, used as primary_key,
     """
-    __tablename__ = 'user'
+    __tablename__ = 'users'
 
-    user_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    username = db.Column(db.String(64), index=True, unique=True)
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    active = db.Column('is_active', db.Boolean(), nullable=False, server_default='1')
+
+    # User authentication information. The collation='NOCASE' is required
+    # to search case insensitively when USER_IFIND_MODE is 'nocase_collation'.
+    username = db.Column(db.String(100), nullable=False, unique=True)
     email = db.Column(db.String(120), index=True, unique=True)
-    password_hash = db.Column(db.String(128))
+    password_hash = db.Column(db.String(255), nullable=False, server_default='')
+    #email_confirmed_at = db.Column(db.DateTime())
+
+    # User information
+    first_name = db.Column(db.String(100), nullable=False, server_default='')
+    last_name = db.Column(db.String(100), nullable=False, server_default='')
+
+    def is_active(self):
+        return self.is_enabled
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
 
     def __repr__(self):
-        return f'<User({self.user_id}) username:{self.username},email:{self.email}>'
+        return f"User({self.id}, email={self.email}"
+
+
+@login.user_loader
+def load_user(id):
+    return User.query.get(int(id))
 
 
 company_contact = db.Table('company_contact', db.Model.metadata,
@@ -51,7 +77,7 @@ class Company(db.Model):
     __tablename__ = 'company'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    company_name = db.Column(db.String(100), unique=True)
+    company_name = db.Column(db.String(100), unique=True, index=True)
 
     contacts = db.relationship('Contact', secondary=company_contact, back_populates="companies")
     emails = db.relationship('Email', back_populates='company')
@@ -143,28 +169,32 @@ quote_service = db.Table('quote_service', db.Model.metadata,
                          db.Column('service_id', Integer, ForeignKey('service.id'))
                          )
 
+quote_invoice = db.Table('quote_invoice', db.Model.metadata,
+                         db.Column('quote_id', Integer, ForeignKey('quote.id')),
+                         db.Column('invoice_id', Integer, ForeignKey('invoice.id'))
+                         )
+
 
 class Quote(db.Model):
     __tablename__ = 'quote'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     ref_quote = db.Column(db.String)
-    quote_status = db.Column(db.Enum('Signé', 'Envoyé', 'Retard', 'Refusé', name='quotes_status'))
+    quote_status = db.Column(db.Enum('signed', 'sent', 'delay', 'refused', name='quotes_status'))
     created_at = db.Column(db.DateTime, server_default=db.func.now())
-    signed_at = db.Column(db.DateTime, default=None)
     company_id = db.Column(db.Integer, db.ForeignKey('company.id'))
 
     company = db.relationship('Company', back_populates='quotes')
-    invoice = db.relationship('Invoice', back_populates='quote', uselist=False)
+    invoices = db.relationship('Invoice', secondary=quote_invoice, back_populates='quotes')
     services = db.relationship('Service', secondary=quote_service, back_populates="quotes")
     amount = db.relationship("Amount", uselist=False, back_populates="quote")
 
     def __repr__(self):
         return f'<Quote {self.id}, ref_quote: {self.ref_quote}, quote_status: {self.quote_status}, ' \
-            f'created_at: {self.created_at}, signed_at: {self.signed_at}, company_id: {self.company_id}>'
+            f'created_at: {self.created_at}, company_id: {self.company_id}>'
 
 
-contractor_service = db.Table('association', db.Model.metadata,
+contractor_service = db.Table('contractor_service', db.Model.metadata,
                               db.Column('contractor_id', Integer, ForeignKey('contractor.id')),
                               db.Column('service_id', Integer, ForeignKey('service.id'))
                               )
@@ -198,38 +228,62 @@ class Invoice(db.Model):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     ref_invoice = db.Column(db.String)
-    invoice_type = db.Column(db.Enum("Facture d'accompte", "Facture intermédiaire", "Facture", "Facture solde",
+    invoice_type = db.Column(db.Enum("deposite invoice", "intermediate invoice", "invoice", "final invoice",
                                      name='invoices_type'))
-    quote_id = db.Column(db.Integer, db.ForeignKey('quote.id'))
+    #quote_id = db.Column(db.Integer, db.ForeignKey('quote.id'))
     company_id = db.Column(db.Integer, db.ForeignKey('company.id'))
+    #amount_id = db.Column(Integer, ForeignKey('amount.id'))
+    #amount = db.relationship('Amount', back_populates="invoices")
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     contractors = db.relationship('Contractor', back_populates='invoice')
-    quote = db.relationship('Quote', back_populates='invoice')
+    quotes = db.relationship('Quote', secondary=quote_invoice, back_populates='invoices')
     company = db.relationship('Company', back_populates='invoices')
 
-    amount = db.relationship('Amount', uselist=False, back_populates='invoice')
-
     def __repr__(self):
-        return f'<Invoice {self.id}, ref_invoice: {self.ref_invoice}, invoice_type: {self.invoice_type},' \
-            f'quote_id: {self.quote_id}, company_id: {self.company_id}, created_at: {self.created_at}  >'
+        return f'<Invoice {self.id}, ref_invoice: {self.ref_invoice}, invoice_type: {self.invoice_type},'
+        f' company_id: {self.company_id}, created_at: {self.created_at}  >'
+
+
+service_association_label = db.Table('service_association_label', db.Model.metadata,
+    db.Column('service_id', Integer, ForeignKey('service.id')),
+    db.Column('label_service_id', Integer, ForeignKey('label_service.id'))
+)
 
 
 class Service(db.Model):
+    __tablename__ = 'service'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    services = db.Column(db.Enum('3D', 'Photo', 'Vidéo', 'Réalité Augmentée', 'Drône', 'Photo sur site',
-                               'Surcyclage', 'Photo avec location lieux', 'Production', 'Direction artistique',
-                                 name='quote_status'))
+    label_services = db.relationship(
+        "Label_service",
+        secondary=service_association_label,
+        back_populates="services")
+    # db.Enum('3d', 'direction artistique', 'drone', 'image bank', 'photo', 'photo sur site','post-production',
+    # 'production', 'realite augmentee', 'surcyclage', 'video',name='quote_status')
     quotes = db.relationship('Quote', secondary=quote_service, back_populates="services")
     companies = db.relationship('Company', secondary=company_service, back_populates="services")
-    amount_id = db.Column(db.Integer, db.ForeignKey('amount.id'))
     contractors = db.relationship("Contractor", secondary=contractor_service, back_populates="services")
 
     def __repr__(self):
-        return '<Service {}>'.format(self.services)
+        return f'<Service({self.id}) nb_label={len(self.label_services)}>'
+
+
+class Label_service(db.Model):
+    __tablename__ = 'label_service'
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    label = db.Column(db.String(100), unique=True)
+
+    services = db.relationship(
+        "Service",
+        secondary=service_association_label,
+        back_populates="label_services")
+
+    def __repr__(self):
+        return f'<Label_service ({self.id}) label={self.label}>'
 
 
 class Amount(db.Model):
+    __tablename__ = 'amount'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
 
@@ -238,7 +292,10 @@ class Amount(db.Model):
 
     ht_amount = db.Column(db.Float)
     ttc_amount = db.Column(db.Float)
-    payment_status = db.Column(db.Enum('Payé', 'En attente', name='payment_status'))
+    payment_status = db.Column(db.Enum('paid', 'waiting', name='payment_status'))
     paid_at = db.Column(db.DateTime)
-    invoice_id = db.Column(Integer, ForeignKey('invoice.id'))
-    invoice = db.relationship("Invoice", back_populates="amount")
+    #invoice_id = db.Column(Integer, ForeignKey('invoice.id'))
+    #invoices = db.relationship("Invoice", back_populates="amount")
+
+    def __repr__(self):
+        return '<Amount {}>'.format(self.ht_amount)
