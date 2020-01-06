@@ -1,27 +1,35 @@
 <html>
     <head>
         {% if title %}
-        <title>{{ title }} - microblog</title>
+            <title>{{ title }} - crm</title>
         {% else %}
-        <title>microblog</title>
+            <title>crm</title>
         {% endif %}
     </head>
     <body>
         <div>
-        Microblog:
-        <a href="{{ url_for('index') }}">Home</a>
-        <a href="{{ url_for('login') }}">Login</a>
+        AVP:
+        <a href="{{ url_for('index') }}">Accueil</a>
+        <a href="{{ url_for('dash') }}">Analyse des contrats</a>
+        <a href="{{ url_for('dash2') }}">Analyse des ventes</a>
+        <a href="{{ url_for('dash3') }}">Détail par entreprises</a>
+        <a href="{{ url_for('create_contact') }}">Créer un nouveau contact</a>
+        <a href="{{ url_for('create_note') }}">Créer une note</a>
+
+
+
         </div>
         <hr>
         {% with messages = get_flashed_messages() %}
-        {% if messages %}
-        <ul>
-            {% for message in messages %}
-            <li>{{ message }}</li>
-            {% endfor %}
-        </ul>
-        {% endif %}
+            {% if messages %}
+                <ul>
+                    {% for message in messages %}
+                    <li>{{ message }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
         {% endwith %}
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/style.css') }}">
         {% block content %}{% endblock %}
     </body>
 </html>
